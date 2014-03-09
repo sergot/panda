@@ -66,6 +66,11 @@ multi MAIN ('search', $pattern) {
     search-projects($panda, $pattern);
 }
 
+#= Bundle the project in the current directory for uploading to PAUSE.
+multi MAIN ('bundle', Bool :$notests, Str :$name, Str :$auth, Str :$desc) {
+    $panda.bundler.bundle($panda);
+}
+
 END {
     rm_rf '.work' if '.work'.IO.e;
 }
