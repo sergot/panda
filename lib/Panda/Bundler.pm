@@ -42,6 +42,7 @@ method bundle($panda, :$notests) {
 
     temp $*EXECUTABLE_NAME = "$*EXECUTABLE_NAME -MPanda::DepTracker";
     %*ENV<PANDA_DEPTRACKER_FILE> = "$dir/deptracker-$*PID";
+    %*ENV<PANDA_PROTRACKER_FILE> = "$dir/protracker-$*PID";
 
     $panda.announce('building', $bone);
     unless $_ = $panda.builder.build($dir) {
@@ -68,6 +69,16 @@ method bundle($panda, :$notests) {
             }
             %*ENV<PANDA_DEPTRACKER_FILE>.IO.spurt: ''
         }
+        if %*ENV<PANDA_PROTRACKER_FILE>.IO.e {
+            my $test = EVAL %*ENV<PANDA_PROTRACKER_FILE>.IO.slurp;
+            for $test.list -> $m {
+                for $m<symbols> (-) $bone.metainfo<build-depends> {
+                    if $m<file> && $m<file>.match(/^"$dir" [ [\/|\\] blib [\/|\\] ]? $<relname>=.+/) -> $match {
+                        $bone.metainfo<provides>{$_} = ~$match<relname>
+                    }
+                }
+            }
+        }
     }
 
     $bone.metainfo<depends> = [($bone.metainfo<test-depends> (&) $bone.metainfo<build-depends>).list.flat];
@@ -82,11 +93,12 @@ method bundle($panda, :$notests) {
         build-depends => $bone.metainfo<build-depends>,
         test-depends  => $bone.metainfo<test-depends>,
         depends       => $bone.metainfo<depends>,
-        # XXX provides section
+        provides      => $bone.metainfo<provides>,
         source-url    => $bone.metainfo<source-url>,
     };
 
     try unlink %*ENV<PANDA_DEPTRACKER_FILE> if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e;
+    try unlink %*ENV<PANDA_PROTRACKER_FILE> if %*ENV<PANDA_PROTRACKER_FILE>.IO.e;
 
     return True;
 }
