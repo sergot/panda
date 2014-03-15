@@ -8,8 +8,8 @@ sub guess-project($where) {
     my $source-url;
 
     indir $where, {
-        if 'META.info'.IO.e {
-            try my $json = from-json 'META.info'.IO.slurp;
+        if 'META6.json'.IO.e {
+            try my $json = from-json 'META6.json'.IO.slurp;
             if $json {
                 $name        = $json<name>        if $json<name>;
                 $description = $json<description> if $json<description>;
@@ -40,62 +40,93 @@ method bundle($panda, :$notests) {
     my $dir  = cwd.absolute;
     my $bone = guess-project($dir);
 
-    temp $*EXECUTABLE_NAME = "$*EXECUTABLE_NAME -MPanda::DepTracker";
-    %*ENV<PANDA_DEPTRACKER_FILE> = "$dir/deptracker-$*PID";
-    %*ENV<PANDA_PROTRACKER_FILE> = "$dir/protracker-$*PID";
+    try {
+        temp $*EXECUTABLE_NAME = "$*EXECUTABLE_NAME -MPanda::DepTracker";
+        %*ENV<PANDA_DEPTRACKER_FILE> = "$dir/deptracker-build-$*PID";
+        %*ENV<PANDA_PROTRACKER_FILE> = "$dir/protracker-build-$*PID";
+        try unlink %*ENV<PANDA_DEPTRACKER_FILE> if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e;
+        try unlink %*ENV<PANDA_PROTRACKER_FILE> if %*ENV<PANDA_PROTRACKER_FILE>.IO.e;
 
-    $panda.announce('building', $bone);
-    unless $_ = $panda.builder.build($dir) {
-        die X::Panda.new($bone.name, 'build', $_)
-    }
-    if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e {
-        my $test = EVAL %*ENV<PANDA_DEPTRACKER_FILE>.IO.slurp;
-        for $test.list -> $m {
-            $bone.metainfo<build-depends>.push: $m<module_name> # XXX :auth/:ver/:from/...
-        }
-        %*ENV<PANDA_DEPTRACKER_FILE>.IO.spurt: ''
-    }
-
-    unless $notests {
-        temp $*EXECUTABLE_NAME = "\"$*EXECUTABLE_NAME -MPanda::DepTracker\"";
-        $panda.announce('testing', $bone);
-        unless $_ = $panda.tester.test($dir) {
-            die X::Panda.new($bone.name, 'test', $_)
+        $panda.announce('building', $bone);
+        unless $_ = $panda.builder.build($dir) {
+            die X::Panda.new($bone.name, 'build', $_)
         }
         if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e {
             my $test = EVAL %*ENV<PANDA_DEPTRACKER_FILE>.IO.slurp;
             for $test.list -> $m {
-                $bone.metainfo<test-depends>.push: $m<module_name> # XXX :auth/:ver/:from/...
+                $bone.metainfo<build-depends>.push: $m<module_name> unless $m<file> ~~ /^"$dir" [ [\/|\\] blib ]? [\/|\\] lib [\/|\\]/ # XXX :auth/:ver/:from/...
             }
             %*ENV<PANDA_DEPTRACKER_FILE>.IO.spurt: ''
         }
+
         if %*ENV<PANDA_PROTRACKER_FILE>.IO.e {
             my $test = EVAL %*ENV<PANDA_PROTRACKER_FILE>.IO.slurp;
             for $test.list -> $m {
                 for $m<symbols> (-) $bone.metainfo<build-depends> {
-                    if $m<file> && $m<file>.match(/^"$dir" [ [\/|\\] blib [\/|\\] ]? $<relname>=.+/) -> $match {
-                        $bone.metainfo<provides>{$_} = ~$match<relname>
+                    if $m<file> && $m<file>.match(/^"$dir" [ [\/|\\] blib [\/|\\] ]? <?before 'lib' [\/|\\] > $<relname>=.+/) -> $match {
+                        $bone.metainfo<build-provides>{$_} = ~$match<relname>
+                    }
+                }
+            }
+            %*ENV<PANDA_PROTRACKER_FILE>.IO.spurt: ''
+        }
+
+        unless $notests {
+            temp $*EXECUTABLE_NAME = "\"$*EXECUTABLE_NAME -MPanda::DepTracker\"";
+            $panda.announce('testing', $bone);
+            unless $_ = $panda.tester.test($dir) {
+                die X::Panda.new($bone.name, 'test', $_)
+            }
+            if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e {
+                my $test = EVAL %*ENV<PANDA_DEPTRACKER_FILE>.IO.slurp;
+                for $test.list -> $m {
+                    $bone.metainfo<test-depends>.push: $m<module_name> unless $m<file> ~~ /^"$dir" [ [\/|\\] blib ]? [\/|\\] lib [\/|\\]/ # XXX :auth/:ver/:from/...
+                }
+                $bone.metainfo<test-depends> = [$bone.metainfo<test-depends>.list.uniq];
+            }
+            if %*ENV<PANDA_PROTRACKER_FILE>.IO.e {
+                my $test = EVAL %*ENV<PANDA_PROTRACKER_FILE>.IO.slurp;
+                for $test.list -> $m {
+                    for $m<symbols> (-) $bone.metainfo<build-depends> {
+                        if $m<file> && $m<file>.match(/^"$dir" [ [\/|\\] blib [\/|\\] ]? <?before 'lib' [\/|\\] > $<relname>=.+/) -> $match {
+                            $bone.metainfo<test-provides>{$_} = ~$match<relname>
+                        }
                     }
                 }
             }
         }
+
+        unless $bone.name eq 'Panda' {
+            $bone.metainfo<build-depends> = [($bone.metainfo<build-depends> (-) 'Panda::DepTracker').list.flat];
+            $bone.metainfo<test-depends>  = [($bone.metainfo<test-depends> (-) 'Panda::DepTracker').list.flat];
+        }
+        $bone.metainfo<depends> = [($bone.metainfo<test-depends> (&) $bone.metainfo<build-depends>).list.flat];
+        for $bone.metainfo<test-provides>.kv, $bone.metainfo<build-provides>.kv -> $k, $v {
+            $bone.metainfo<provides>{$k} = $v
+        }
+
+        $bone.metainfo<version> = prompt "Please enter version number (example: v1.2.3): ";
+
+        $panda.announce('Creating META6.json.proposed');
+        'META6.json.proposed'.IO.spurt: to-json {
+            perl           => 'v6',
+            name           => $bone.name,
+            description    => $bone.metainfo<description>,
+            version        => $bone.metainfo<version>,
+            build-depends  => $bone.metainfo<build-depends>,
+            test-depends   => $bone.metainfo<test-depends>,
+            depends        => $bone.metainfo<depends>,
+            provides       => $bone.metainfo<provides>,
+            support        => {
+                source => $bone.metainfo<source-url>,
+            }
+        };
+
+        CATCH {
+            try unlink %*ENV<PANDA_DEPTRACKER_FILE> if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e;
+            try unlink %*ENV<PANDA_PROTRACKER_FILE> if %*ENV<PANDA_PROTRACKER_FILE>.IO.e;
+        }
     }
-
-    $bone.metainfo<depends> = [($bone.metainfo<test-depends> (&) $bone.metainfo<build-depends>).list.flat];
-
-    $bone.metainfo<version> = prompt "Please enter version number (example: v1.2.3): ";
-
-    $panda.announce('Creating META.info.proposed');
-    'META.info.proposed'.IO.spurt: to-json {
-        name          => $bone.name,
-        description   => $bone.metainfo<description>,
-        version       => $bone.metainfo<version>,
-        build-depends => $bone.metainfo<build-depends>,
-        test-depends  => $bone.metainfo<test-depends>,
-        depends       => $bone.metainfo<depends>,
-        provides      => $bone.metainfo<provides>,
-        source-url    => $bone.metainfo<source-url>,
-    };
 
     try unlink %*ENV<PANDA_DEPTRACKER_FILE> if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e;
     try unlink %*ENV<PANDA_PROTRACKER_FILE> if %*ENV<PANDA_PROTRACKER_FILE>.IO.e;

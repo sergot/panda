@@ -1,22 +1,24 @@
 
 my class DepTracker is CompUnitRepo {
     method load_module($module_name, %opts, *@GLOBALish is rw, :$line, :$file) {
-        if %*ENV<PANDA_DEPTRACKER_FILE> {
-            %*ENV<PANDA_DEPTRACKER_FILE>.IO.spurt: { :$module_name, :%opts }.perl ~ ",\n", :append;
-        }
-        #~ We perhaps need to sort out new symbols better using the following information:
+        # We perhaps need to sort out new symbols better using the following information:
         #~ if +@GLOBALish {
-            #~ '1'.IO.spurt: "$module_name before: " ~ symbols(@GLOBALish[0]).perl ~ ",\n", :append;
+            #~ %*ENV<PANDA_PROTRACKER_FILE>.IO.spurt:
+                #~ { :$module_name, :$file, :symbols( symbols(@GLOBALish[0]) ) }.perl ~ ",\n", :append;
         #~ }
 
         my $r := CompUnitRepo.load_module($module_name, %opts, @GLOBALish, :$line, :$file);
 
-        if %*ENV<PANDA_PROTRACKER_FILE> && nqp::existskey($r, 'GLOBALish') {
-            my $candi = self.candidates($module_name, :auth(%opts<auth>), :ver(%opts<ver>))[0];
-            if $candi {
-                my $file = $candi<provides>{$module_name}<pm><file>;
+        # get our hands on the candidate that was loaded right before.
+        my $candi = CompUnitRepo.candidates($module_name, :auth(%opts<auth>), :ver(%opts<ver>))[0];
+        if $candi {
+            my $file = $candi<provides>{$module_name}<pm><file>;
+            if %*ENV<PANDA_PROTRACKER_FILE> && nqp::existskey($r, 'GLOBALish') {
                 %*ENV<PANDA_PROTRACKER_FILE>.IO.spurt:
                     { :$module_name, :$file, :symbols( symbols(nqp::atkey($r, 'GLOBALish')) ) }.perl ~ ",\n", :append;
+            }
+            if %*ENV<PANDA_DEPTRACKER_FILE> {
+                %*ENV<PANDA_DEPTRACKER_FILE>.IO.spurt: { :$module_name, :$file, :%opts }.perl ~ ",\n", :append;
             }
         }
 
