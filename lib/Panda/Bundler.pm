@@ -41,7 +41,7 @@ method bundle($panda, :$notests) {
     my $bone = guess-project($dir);
 
     try {
-        temp $*EXECUTABLE_NAME = "$*EXECUTABLE_NAME -MPanda::DepTracker";
+        temp $*EXECUTABLE = "$*EXECUTABLE -MPanda::DepTracker";
         %*ENV<PANDA_DEPTRACKER_FILE> = "$dir/deptracker-build-$*PID";
         %*ENV<PANDA_PROTRACKER_FILE> = "$dir/protracker-build-$*PID";
         try unlink %*ENV<PANDA_DEPTRACKER_FILE> if %*ENV<PANDA_DEPTRACKER_FILE>.IO.e;
@@ -72,7 +72,7 @@ method bundle($panda, :$notests) {
         }
 
         unless $notests {
-            temp $*EXECUTABLE_NAME = "\"$*EXECUTABLE_NAME -MPanda::DepTracker\"";
+            temp $*EXECUTABLE = "\"$*EXECUTABLE -MPanda::DepTracker\"";
             $panda.announce('testing', $bone);
             unless $_ = $panda.tester.test($dir) {
                 die X::Panda.new($bone.name, 'test', $_)
