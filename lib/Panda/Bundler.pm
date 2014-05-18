@@ -118,7 +118,7 @@ method bundle($panda, :$notests) {
             depends        => $bone.metainfo<depends>,
             provides       => $bone.metainfo<provides>,
             support        => {
-                source => $bone.metainfo<source-url>,
+                source => ~$bone.metainfo<source-url>,
             }
         };
 
