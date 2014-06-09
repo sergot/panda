@@ -32,7 +32,7 @@ class Panda::Ecosystem {
             }
         }
 
-        self.update if $!projectsfile.IO !~~ :f || $!projectsfile.IO ~~ :z;
+        self.update;
         my $list = from-json slurp $!projectsfile;
         unless defined $list {
             die "An unknown error occured while reading the projects file";
